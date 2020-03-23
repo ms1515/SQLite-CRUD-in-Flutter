@@ -1,0 +1,132 @@
+import 'package:heartkey/core/models/db/ecg_log.dart';
+import 'package:heartkey/core/services/header_info.dart';
+import 'dart:async';
+import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart';
+
+class SqlDatabaseHelper {
+
+  Database db;
+  Batch batch;
+  Completer<Database> _completer;
+  Transaction transaction;
+
+  Future<Database> getSqlDatabase() async {
+    if (_completer == null) {
+      _completer = Completer();            
+      _initDB();
+    }
+    return _completer.future;
+  }
+
+   Future<Database> _initDB() async {
+    String createECGLogTableQuery = "CREATE TABLE ecgLogs(id INTEGER PRIMARY KEY, sessionID VARCHAR, data TEXT,leadsOn TEXT)";
+    String createHeaderInfoTableQuery = "CREATE TABLE headerInfo(id INTEGER PRIMARY KEY, sessionID VARCHAR, data TEXT,leadsOn TEXT)";
+    var path = await getDatabasesPath();
+    db = await openDatabase(
+    join(path, 'ecgLogs_database.db'),
+    // When the database is first created, create tables to store ecgLogs and header Info.
+    onCreate: (db, version) {
+     db.execute(createECGLogTableQuery);
+     db.execute(createHeaderInfoTableQuery);
+    },
+    version: 1,
+  );
+  return db;
+  }
+
+  Future<int> insertEcgLog(ECGLog ecgLog) async {
+    // Insert the EcgLog into the correct table. Also specify the
+    // `conflictAlgorithm`. In this case, if the same ecgLog is inserted
+    // multiple times, it replaces the previous data.
+    var key = await db.insert('ecgLogs',  ecgLog.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace);
+   
+    return key;
+  }
+
+  Future<int> insertHeaderInfo(HeaderInfo hinfo) async {
+    var key = await db.insert('headerInfo',  hinfo.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace);
+    return key;
+  }
+
+
+  Future<List<ECGLogSQL>> getEcgLogs() async {
+    // Query the table for all ECGLogs.
+    final List<Map<String, dynamic>> maps = await db.query('ecgLogs');
+
+    // Convert the List<Map<String, dynamic> into a List<Dog>.
+    return List.generate(maps.length, (i) {
+      return ECGLogSQL.fromMap(maps[i]);
+    });
+  }
+
+  Future<int> getEcgLogsCount() async {
+    // Get a reference to the database.
+  var count;
+    // Query the table for all ECGLogs.
+   await db.query('ecgLogs').then((logs) => {
+      count = logs.length
+   });
+   return count;    
+  }
+
+
+  Future<void> updateEcgLog(ECGLog ecgLog) async {
+    // Update the given Log.
+    var count =  await db.update(
+      'ecgLogs',
+      ecgLog.toMap(),
+      where: "id = ?",
+      whereArgs: [ecgLog.id],
+    );
+    print("ECG Log Updated: $count");
+  }
+
+
+  Future<void> deleteEcgLog(int id) async {
+    // Remove the log from the database with that id;
+    await db.delete(
+      'ecgLogs',
+      where: "id = ?",
+      whereArgs: [id],
+    );
+  }
+
+   Future<void> deleteAllEcgLog(int id) async {
+    // Remove the log from the database with that id;
+    var count = await db.delete(
+      'ecgLogs',
+    );
+    print("Delete Count: $count");
+  }
+
+  
+  Future<void> createBatch() async {
+   batch = db.batch();
+  }
+
+
+  void insertToBatch(ECGLog ecgLog)  {
+    batch.insert('ecgLogs', ecgLog.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,);
+  }
+
+  void updateToBatch(ECGLog ecgLog)  {
+    batch.update(
+      'ecgLogs',
+      ecgLog.toMap(),
+      // Ensure that the ecgLog has a matching id.
+      where: "sessionId = ?",
+      // Pass the ecgLog's's id as a whereArg to prevent SQL injection.
+      whereArgs: [ecgLog.sessionId],
+    );
+  }
+
+  Future<void> commitBatch() async {
+    await batch.commit(noResult: true);
+    print("just did a commit");
+  }
+
+}
